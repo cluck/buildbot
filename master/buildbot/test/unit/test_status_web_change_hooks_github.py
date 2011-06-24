@@ -16,11 +16,15 @@
 import buildbot.status.web.change_hook as change_hook
 from buildbot.test.fake.web import MockRequest
 
+from twisted.web.resource import getChildForRequest, Resource
+from twisted.web import server
+
 from twisted.trial import unittest
 from twisted.internet import defer
 
+
 # Sample GITHUB commit payload from http://help.github.com/post-receive-hooks/
-# Added "modfied" and "removed", and change email
+# Added "modified" and "removed", and change email
 
 gitJsonPayload = """
 {
@@ -66,21 +70,26 @@ gitJsonPayload = """
   "ref": "refs/heads/master"
 }
 """
+
+
 class TestChangeHookConfiguredWithGitChange(unittest.TestCase):
+
     def setUp(self):
-        changeDict={"payload" : [gitJsonPayload]}
-        self.request = MockRequest(changeDict)
-        self.changeHook = change_hook.ChangeHookResource(dialects={'github' : True})
+        self.change_hook = change_hook.ChangeHookResource( dialects=dict(github=True) )
+        self.resource = Resource()
+        self.resource.putChild( 'change_hook', self.change_hook )
 
-    # Test 'base' hook with attributes. We should get a json string representing
-    # a Change object as a dictionary. All values show be set.
     def testGitWithChange(self):
-        self.request.uri = "/change_hook/github"
-        d = defer.maybeDeferred(lambda : self.changeHook.render_GET(self.request))
-        def check_changes(r):
-            self.assertEquals(len(self.request.addedChanges), 2)
-            change = self.request.addedChanges[0]
-
+        self.request = MockRequest( prepath='', postpath='change_hook/github', payload=[gitJsonPayload,])
+        res = getChildForRequest( self.resource, self.request )
+        def check_request( res ):
+            self.failUnless( res == server.NOT_DONE_YET, # = int(1) btw
+                'expected server.NOT_DONE_YET from render_GET|render_POST' )
+        def check_response( req ):
+            self.failUnless( req.code % 200 + 200 == req.code,
+                'Error code %03d (%s) for internal failure not in 2xx' % (req.code, req.code_message) )
+            self.assertEquals(len(req.addedChanges), 2)
+            change = req.addedChanges[0]
             self.assertEquals(change['files'], ['filepath.rb'])
             self.assertEquals(change["repository"], "http://github.com/defunkt/github")
             self.assertEquals(change["when"], 1203116237)
@@ -89,7 +98,6 @@ class TestChangeHookConfiguredWithGitChange(unittest.TestCase):
             self.assertEquals(change["comments"], "okay i give in")
             self.assertEquals(change["branch"], "master")
             self.assertEquals(change["revlink"], "http://github.com/defunkt/github/commit/41a212ee83ca127e3c8cf465891ab7216a705f59")
-
             change = self.request.addedChanges[1]
             self.assertEquals(change['files'], [ 'modfile', 'removedFile' ])
             self.assertEquals(change["repository"], "http://github.com/defunkt/github")
@@ -99,6 +107,9 @@ class TestChangeHookConfiguredWithGitChange(unittest.TestCase):
             self.assertEquals(change["comments"], "update pricing a tad")
             self.assertEquals(change["branch"], "master")
             self.assertEquals(change["revlink"], "http://github.com/defunkt/github/commit/de8251ff97ee194a289832576287d6f8ad74e3d0")
+        d1 = defer.maybeDeferred( res.render_GET, self.request )
+        d1.addCallback( check_request )
+        d2 = self.request._x_finish()
+        d2.addCallback( check_response )
+        return defer.DeferredList( ( d1, d2 ) )
 
-        d.addCallback(check_changes)
-        return d
