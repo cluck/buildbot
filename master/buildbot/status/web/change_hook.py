@@ -179,9 +179,6 @@ class DialectResource( resource.Resource ):
             for di in iter(plugin.dialects()):
                 if di == self.dialect:
                     for change in plugin.changes( request, self.dialect, self.options ):
-                        if getattr( change, '_discard_change', False ):
-                            log.msg( 'discarding change from %s as requested by plugin' % plugin )
-                            continue
                         log.msg( 'change from %s' % plugin )
                         yield change
 
@@ -190,6 +187,9 @@ class DialectResource( resource.Resource ):
     def submit_changes(self, changes, request):
         master = request.site.buildbot_service.master
         for chdict in changes:
+            if chdict.get('_discard_change', False) != False:
+                log.msg( 'discarding change as requested by plugin' )
+                continue
             wfd = defer.waitForDeferred( master.addChange(**chdict) )
             yield wfd
             change = wfd.getResult()
