@@ -23,6 +23,12 @@ from twisted.plugin import IPlugin
 
 class IBuildbotWebhookDialect( IPlugin ):
 
-    def get_changes( request, options=None ):
-        pass
+    def dialects():
+        """Iterator of strings of supported dialects."""
+
+    def changes( request, options=None ):
+        """Iterator of changes (dict).
+
+        Changes with non-false key _discard_change will be discarded.
+        """
 
